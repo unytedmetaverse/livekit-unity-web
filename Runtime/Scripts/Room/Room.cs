@@ -25,7 +25,6 @@ namespace LiveKit
         public delegate void ReconnectingDelegate();
         public delegate void ReconnectedDelegate();
         public delegate void DisconnectedDelegate(DisconnectReason? reason);
-        public delegate void StateChangedDelegate(ConnectionState state);
         public delegate void MediaDevicesChangedDelegate();
         public delegate void ParticipantConnectedDelegate(RemoteParticipant participant);
         public delegate void ParticipantDisconnectedDelegate(RemoteParticipant participant);
@@ -47,11 +46,11 @@ namespace LiveKit
         public delegate void TrackStreamStateChangedDelegate(RemoteTrackPublication publication, TrackStreamState streamState, RemoteParticipant participant);
         public delegate void TrackSubscriptionPermissionChangedDelegate(RemoteTrackPublication publication, SubscriptionStatus status, RemoteParticipant participant);
         public delegate void AudioPlaybackChangedDelegate(bool playing);
+        public delegate void AttributesChangedDelegate(Participant participant, JSMap<string, string> changedAttributes);
 
         public event ReconnectingDelegate Reconnecting;
         public event ReconnectedDelegate Reconnected;
         public event DisconnectedDelegate Disconnected;
-        public event StateChangedDelegate StateChanged;
         public event MediaDevicesChangedDelegate MediaDevicesChanged;
         public event ParticipantConnectedDelegate ParticipantConnected;
         public event ParticipantDisconnectedDelegate ParticipantDisconnected;
@@ -73,6 +72,7 @@ namespace LiveKit
         public event TrackStreamStateChangedDelegate TrackStreamStateChanged;
         public event TrackSubscriptionPermissionChangedDelegate TrackSubscriptionPermissionChanged;
         public event AudioPlaybackChangedDelegate AudioPlaybackChanged;
+        public event AttributesChangedDelegate AttributesChanged;
 
         [MonoPInvokeCallback(typeof(JSNative.JSDelegate))]
         private static void EventReceived(IntPtr iptr)
@@ -105,13 +105,6 @@ namespace LiveKit
                         room.Disconnected?.Invoke(reason);
                         break;
                     }
-                    case RoomEvent.StateChanged:
-                        {
-                            var str = JSNative.GetString(JSNative.ShiftStack());
-                            Log.Debug($"Room: Received StateChanged(\"{str}\"");
-                            room.StateChanged?.Invoke(Utils.ToEnum<ConnectionState>(str));
-                            break;
-                        }
                     case RoomEvent.MediaDevicesChanged:
                         Log.Debug($"Room: Received MediaDevicesChanged");
                         room.MediaDevicesChanged?.Invoke();
@@ -294,6 +287,14 @@ namespace LiveKit
                             room.AudioPlaybackChanged?.Invoke(status);
                             break;
                         }
+                    case RoomEvent.ParticipantAttributesChanged:
+                        {
+                            var changedAttributes = Acquire<JSMap<string, string>>(JSNative.ShiftStack());
+                            var participant = Acquire<Participant>(JSNative.ShiftStack());
+                            Log.Debug($"Room: Received AttributesChanged({participant.Sid}, {changedAttributes})");
+                            room.AttributesChanged?.Invoke(participant, changedAttributes);
+                            break;
+                        }
                 }
             }
             catch (Exception e)
@@ -320,11 +321,11 @@ namespace LiveKit
             }
         }
 
-        public JSMap<string, RemoteParticipant> Participants
+        public JSMap<string, RemoteParticipant> RemoteParticipants
         {
             get
             {
-                JSNative.PushString("participants");
+                JSNative.PushString("remoteParticipants");
                 return Acquire<JSMap<string, RemoteParticipant>>(JSNative.GetProperty(NativeHandle));
             }
         }
@@ -338,13 +339,9 @@ namespace LiveKit
             }
         }
 
-        public string Sid
+        public JSPromise<JSObject> GetSid()
         {
-            get
-            {
-                JSNative.PushString("sid");
-                return JSNative.GetString(JSNative.GetProperty(NativeHandle));
-            }
+            return Acquire<JSPromise<JSObject>>(JSNative.CallMethod(NativeHandle, "getSid"));
         }
 
         public string Name
